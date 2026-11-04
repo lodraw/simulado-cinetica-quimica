@@ -365,6 +365,19 @@ function iniciar() {
     (b.dataset.tab === 'tiempo' ? lineas : barras).resize();
   });
 
+  // Opciones: las secciones avanzadas empiezan ocultas. Al activar una se baja hasta
+  // ella, porque aparece debajo del banco de trabajo y no se vería el cambio.
+  $('panelOpciones').addEventListener('change', ev => {
+    const seccion = $(ev.target.dataset.seccion);
+    seccion.hidden = !ev.target.checked;
+    if (ev.target.checked) seccion.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // el alto de la cabecera cambia con el ancho y con el modo Presentación
+  $('panelOpciones').addEventListener('beforetoggle', ev => {
+    if (ev.newState === 'open') $('panelOpciones').style.top = `${$('btnOpciones').getBoundingClientRect().bottom + 8}px`;
+  });
+
   // Presentación: si se sale con Esc de pantalla completa, también se apaga el modo
   const modoPresentacion = on => {
     document.documentElement.classList.toggle('presentacion', on);
