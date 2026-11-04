@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Simulador de Cinética Química · Bioetanol</title>
+</head>
+<body>
+
+<!-- 1 · CABECERA -->
+<header class="cabecera">
+    <div class="marca">
+        <span class="gota" aria-hidden="true"></span>
+        <div>
+            <h1>Simulador de cinética química</h1>
+            <p>Bioetanol de cáscaras de fruta · Equipo 4 · Química General · FIME UANL</p>
+        </div>
+    </div>
+    <div class="cabecera-eq" data-tex="\ce{C6H12O6 -> 2 C2H5OH + 2 CO2}"></div>
+    <button class="btn-linea" id="btnPresentacion" aria-pressed="false" title="Letras más grandes y pantalla completa para el proyector">Presentación</button>
+</header>
+
+<!-- 2 · BANCO DE TRABAJO: controles · reactor · lectura -->
+<main class="banco">
+
+    <aside class="controles" aria-label="Parámetros de reacción">
+        <div class="grupo">
+            <div class="rotulo"><span>Biomasa</span>
+                <span class="info" tabindex="0" data-tip="Cada cáscara tiene distinta composición (azúcares libres, almidón, celulosa, pectina), lo que cambia su eficiencia y su tolerancia a temperatura y pH.">i</span>
+            </div>
+            <div class="frutas" id="frutas">
+                <button data-fruta="naranja" class="activa"><span class="punto" style="--c:#e2700c"></span>Naranja</button>
+                <button data-fruta="platano"><span class="punto" style="--c:#2e6fbf"></span>Plátano</button>
+                <button data-fruta="pina"><span class="punto" style="--c:#14907a"></span>Piña</button>
+                <button data-fruta="mango"><span class="punto" style="--c:#a3245c"></span>Mango</button>
+            </div>
+            <select id="fruta" hidden>
+                <option value="naranja">Naranja</option><option value="platano">Plátano</option>
+                <option value="pina">Piña</option><option value="mango">Mango</option>
+            </select>
+            <p class="nota-fruta" id="notaFruta"></p>
+        </div>
+
+        <div class="grupo">
+            <div class="rotulo"><label for="temp">Temperatura</label>
+                <span class="info" tabindex="0" data-tip="S. cerevisiae trabaja mejor entre 25 y 30 °C. Con frío las enzimas se vuelven lentas; arriba de ~35 °C empiezan a desnaturalizarse y la levadura muere.">i</span>
+                <output class="valor" id="tempVal"></output>
+            </div>
+            <div class="pista"><div class="banda-ideal" id="bandaTemp"></div><input type="range" id="temp" min="0" max="50" step="1" value="28"></div>
+            <div class="pie"><span>Ideal <span data-tex="25\text{–}30\ ^{\circ}\mathrm{C}"></span></span><span class="chip ok" id="tempChip">Óptimo</span></div>
+        </div>
+
+        <div class="grupo">
+            <div class="rotulo"><label for="ph">pH</label>
+                <span class="info" tabindex="0" data-tip="Un medio levemente ácido (4.5–5.5) favorece a la levadura y frena bacterias contaminantes. pH extremos dañan sus proteínas de transporte de membrana.">i</span>
+                <output class="valor" id="phVal"></output>
+            </div>
+            <div class="pista pista-ph" id="pistaPh"><div class="banda-ideal" id="bandaPh"></div><input type="range" id="ph" min="1" max="14" step="0.1" value="5.0"></div>
+            <div class="pie"><span>Ideal <span data-tex="4.5\text{–}5.5"></span></span><span class="chip ok" id="phChip">Óptimo</span></div>
+        </div>
+
+        <div class="grupo">
+            <div class="rotulo"><label for="dias">Tiempo</label>
+                <span class="info" tabindex="0" data-tip="La producción sigue una curva logística: fase de latencia, fase exponencial y fase estacionaria cuando se agotan los azúcares.">i</span>
+                <output class="valor" id="diasVal"></output>
+            </div>
+            <div class="pista"><div class="banda-ideal" id="bandaDias"></div><input type="range" id="dias" min="1" max="10" step="0.1" value="6"></div>
+            <div class="pie"><span>Ideal <span data-tex="4\text{–}8\ \text{días}"></span></span><span class="chip ok" id="diasChip">Óptimo</span></div>
+            <button class="btn-play" id="btnPlay">Simular del día 1 al 10</button>
+        </div>
+
+        <div class="grupo">
+            <label class="rotulo switch-rotulo" for="sellado"><span>Sello hermético</span>
+                <span class="info" tabindex="0" data-tip="Sin sello entra $\ce{O2}$: bacterias acéticas (Acetobacter) oxidan el etanol a ácido acético. $\ce{C2H5OH + O2 -> CH3COOH + H2O}$">i</span>
+                <span class="switch"><input type="checkbox" id="sellado" checked><span class="slider"></span></span>
+            </label>
+        </div>
+
+        <div class="grupo">
+            <div class="rotulo"><span>Escenarios</span></div>
+            <div class="escenarios" id="escenarios">
+                <button data-esc="optimo">Óptimo</button>
+                <button data-esc="frio">Muy frío</button>
+                <button data-esc="caliente">Muy caliente</button>
+                <button data-esc="acido">Muy ácido</button>
+                <button data-esc="alcalino">Alcalino</button>
+                <button data-esc="corto">2 días</button>
+                <button data-esc="oxigeno">Sin sello</button>
+            </div>
+        </div>
+    </aside>
+
+    <section class="escenario" aria-label="Biorreactor 3D">
+        <div class="lienzo3d" id="lienzo3d">
+            <div class="overlay sup-izq">
+                <div class="titulo-visor" id="frutaLabel">Cáscara de Naranja</div>
+                <div class="fase" id="tagFase">—</div>
+                <div class="condiciones" id="tagDia"></div>
+            </div>
+            <div class="overlay sup-der segmentado" id="vistas">
+                <button data-vista="reactor" class="activa">Reactor</button>
+                <button data-vista="cascara">Cáscara</button>
+            </div>
+
+            <!-- vista Reactor: escala del indicador -->
+            <div class="overlay inf" id="leyenda3d">
+                <div class="escala-ph">
+                    <div class="escala-rotulo"><span>Color del líquido = indicador universal</span><span class="pista-hover">Pasa el cursor sobre el líquido</span></div>
+                    <div class="escala-barra" id="escalaBarra"><span class="escala-optimo" id="escalaOptimo"></span><span class="escala-marca" id="escalaMarca"></span></div>
+                    <div class="escala-num"><span>1</span><span>3</span><span>5</span><span>7</span><span>9</span><span>11</span><span>14</span></div>
+                </div>
+                <div class="leyenda">
+                    <span><i class="sw burb"></i>Burbujas: <span data-tex="\ce{CO2}"></span> liberado</span>
+                    <span><i class="sw" id="swT"></i>Anillo: temperatura</span>
+                </div>
+            </div>
+
+            <!-- vista Cáscara -->
+            <div class="overlay inf" id="leyendaCascara" hidden>
+                <p class="pista-cascara">Pasa el cursor sobre la fruta para ver qué le ocurre y por qué</p>
+            </div>
+
+            <div class="sin-webgl" id="sinWebgl" hidden>Tu navegador no soporta WebGL; el resto del simulador funciona normalmente.</div>
+        </div>
+    </section>
+
+    <aside class="lectura" aria-label="Resultados">
+        <div class="kpi">
+            <div class="rotulo"><span>Rendimiento</span>
+                <span class="info" tabindex="0" data-tip="Porcentaje del máximo estequiométrico: 1 mol de glucosa produce 2 mol de etanol ($0.511$ g de etanol por g de glucosa $= 100\,\%$).">i</span>
+                <span class="chip ok" id="rendChip">Alto</span>
+            </div>
+            <div class="grande" id="rendimiento"></div>
+            <div class="detalle" id="rendSub"></div>
+            <div class="detalle" id="rendGg"></div>
+        </div>
+
+        <div class="factores">
+            <div class="rotulo"><span>Factores cinéticos</span></div>
+            <div class="factor"><span data-tex="f_T"></span><span>Temperatura</span><div class="barra"><div class="relleno" id="fT"></div></div><span class="pct" id="fTp"></span></div>
+            <div class="factor"><span data-tex="f_{\mathrm{pH}}"></span><span>pH</span><div class="barra"><div class="relleno" id="fP"></div></div><span class="pct" id="fPp"></span></div>
+            <div class="factor"><span data-tex="f_t"></span><span>Tiempo</span><div class="barra"><div class="relleno" id="fD"></div></div><span class="pct" id="fDp"></span></div>
+            <div class="factor"><span data-tex="f_{\ce{O2}}"></span><span>Anaerobiosis</span><div class="barra"><div class="relleno" id="fO"></div></div><span class="pct" id="fOp"></span></div>
+        </div>
+
+        <div class="diagnostico" id="diagnostico">—</div>
+
+        <div class="estado-cascara">
+            <div class="rotulo"><span>Estado de la cáscara</span>
+                <span class="info" tabindex="0" data-tip="Cambia las texturas 3D según temperatura, pH, tiempo y oxígeno. Es una representación cualitativa e ilustrativa: no entra en el cálculo del rendimiento.">i</span>
+            </div>
+            <div class="efectos" id="efectos"></div>
+        </div>
+    </aside>
+</main>
+
+<!-- 3 · ANÁLISIS -->
+<div class="analisis">
+
+    <section class="seccion">
+        <header class="seccion-cab">
+            <span class="num">01</span>
+            <h2>Gráficas</h2>
+            <div class="segmentado" id="tabsGrafica">
+                <button data-tab="comparacion" class="activa">Entre frutas</button>
+                <button data-tab="tiempo">En el tiempo</button>
+            </div>
+        </header>
+        <div class="seccion-cuerpo">
+            <div class="chart-container" data-panel="comparacion"><canvas id="grafica" role="img" aria-label="Rendimiento de cada fruta con las condiciones actuales"></canvas></div>
+            <div class="chart-container" data-panel="tiempo" hidden><canvas id="graficaTiempo" role="img" aria-label="Rendimiento de cada fruta del día 1 al 10"></canvas></div>
+            <div class="leyenda-grafica" id="leyendaGrafica"></div>
+        </div>
+    </section>
+
+    <section class="seccion">
+        <header class="seccion-cab">
+            <span class="num">02</span>
+            <h2>El modelo</h2>
+            <p>Semi-empírico. Sustituye los valores actuales en vivo.</p>
+        </header>
+        <div class="seccion-cuerpo">
+            <div class="ecuacion-principal" id="eqPrincipal"></div>
+            <div class="ecuaciones" id="ecuaciones"></div>
+        </div>
+    </section>
+
+    <section class="seccion">
+        <header class="seccion-cab">
+            <span class="num">03</span>
+            <h2>Etapas del proceso</h2>
+            <p>Según la metodología del protocolo.</p>
+        </header>
+        <div class="seccion-cuerpo">
+            <ol class="etapas" id="etapas"></ol>
+            <div class="etapa-detalle" id="etapaDetalle"></div>
+        </div>
+    </section>
+
+    <section class="seccion calc">
+        <header class="seccion-cab">
+            <span class="num">04</span>
+            <h2>Calculadora estequiométrica</h2>
+            <p>Usa el rendimiento actual del simulador: <b id="calcRend">—</b></p>
+        </header>
+        <div class="seccion-cuerpo calc-grid">
+            <div>
+                <label class="entrada-rotulo" for="gAzucar">Azúcares fermentables (glucosa equivalente)</label>
+                <div class="entrada"><input type="number" id="gAzucar" value="100" min="0" step="1"><span>g</span></div>
+                <div class="calc-res" id="calcRes"></div>
+            </div>
+            <div class="pasos" id="pasos"></div>
+        </div>
+    </section>
+
+    <footer class="aviso">
+        <b>Nota:</b> modelo semi-empírico con fines didácticos. Las eficiencias por fruta, las curvas de respuesta y el deterioro visual de las cáscaras son ilustrativos, basados en tendencias reportadas en la literatura (Linares-Luna et al., 2022; Mendoza-Espinoza et al., 2022; Carvajal, 2021), no en datos experimentales propios. El color del líquido representa un indicador universal de pH como apoyo visual.
+    </footer>
+</div>
+
+<div class="tip" id="tip" role="tooltip" hidden></div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
