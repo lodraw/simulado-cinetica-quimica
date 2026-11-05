@@ -83,17 +83,19 @@ export function calcular(clave, T, pH, dias, sellado = true) {
   const fP = factorPH(pH, clave);
   const fD = factorTiempo(dias, clave);
   const fO = factorOxigeno(dias, sellado);
-  const rendimiento = FRUTAS[clave].efic * fT * fP * fD * fO;
+  const rendimientoFermentacion = FRUTAS[clave].efic * fT * fP * fD; // lo fermentado, antes de la acetificación
+  const rendimiento = rendimientoFermentacion * fO;
   const act = actividad(dias, clave) * fT * fP * (sellado ? 1 : 0.6);
   // Turbidez: biomasa de levadura en suspensión; si la levadura no crece, el medio sigue claro (ILUSTRATIVO)
   const turbidez = 0.08 + 0.72 * fD * fT * fP;
-  return { fT, fP, fD, fO, rendimiento, actividad: act, turbidez, gPorG: Y_MAX * rendimiento / 100 };
+  return { fT, fP, fD, fO, rendimiento, rendimientoFermentacion, actividad: act, turbidez, gPorG: Y_MAX * rendimiento / 100 };
 }
 
-export function estequiometria(gAzucar, rendimiento) {
+// La acetificación consume etanol pero no retira el CO2 ya liberado: el etanol sale del
+// rendimiento final y el CO2 de lo que se fermentó. Con sello ambos coinciden.
+export function estequiometria(gAzucar, rendimiento, rendimientoFermentacion = rendimiento) {
   const n = gAzucar / MASA_MOLAR.glucosa;
-  const fr = rendimiento / 100;
-  const nEt = 2 * n * fr, nCO2 = 2 * n * fr;
+  const nEt = 2 * n * rendimiento / 100, nCO2 = 2 * n * rendimientoFermentacion / 100;
   const gEt = nEt * MASA_MOLAR.etanol;
   return {
     nGlucosa: n,

@@ -319,14 +319,14 @@ function iniciar() {
       reactor.update({ T, pH, sellado, actividad: r.actividad, turbidez: r.turbidez, colorLiquido: color, cascara: c });
     }
     actualizarModelo(clave, T, pH, dias, sellado, r);
-    actualizarCalc(r.rendimiento);
+    actualizarCalc(r);
   }
 
   // ---------- calculadora ----------
-  function actualizarCalc(rend) {
+  function actualizarCalc({ rendimiento: rend, rendimientoFermentacion: rendFerm, fO }) {
     if ($('seccionCalculadora').hidden) return;
     const m = Math.max(0, +$('gAzucar').value || 0);
-    const s = estequiometria(m, rend), fr = rend / 100;
+    const s = estequiometria(m, rend, rendFerm), fr = rend / 100, frFerm = rendFerm / 100;
     ponerTex($('calcRend'), `${rend.toFixed(1)}\\,\\%`);
     const M = MASA_MOLAR;
     ponerTex($('pasos'), `\\begin{aligned}
@@ -334,11 +334,12 @@ function iniciar() {
       n_{\\ce{C2H5OH}} &= 2 \\times ${num(s.nGlucosa, 3)} \\times ${fr.toFixed(3)} = ${num(s.nEtanol, 3)}${u('mol')} \\\\[6pt]
       m_{\\ce{C2H5OH}} &= ${num(s.nEtanol, 3)}${u('mol')} \\times ${M.etanol}${u('g/mol')} = ${num(s.gEtanol, 2)}${u('g')} \\\\[6pt]
       V_{\\ce{C2H5OH}} &= \\frac{${num(s.gEtanol, 2)}${u('g')}}{${DENSIDAD_ETANOL}${u('g/mL')}} = ${num(s.mlEtanol, 1)}${u('mL')} \\\\[6pt]
+      n_{\\ce{CO2}} &= 2 \\times ${num(s.nGlucosa, 3)} \\times ${frFerm.toFixed(3)} = ${num(s.nCO2, 3)}${u('mol')} \\\\[6pt]
       V_{\\ce{CO2}} &= ${num(s.nCO2, 3)}${u('mol')} \\times ${VOLUMEN_MOLAR}${u('L/mol')} = ${num(s.lCO2, 1)}${u('L')}
     \\end{aligned}`, true);
     const res = `
       <div class="res"><span>Etanol obtenido</span><b>${tex(`${num(s.gEtanol, 1)}${u('g')}`)}</b><small>${tex(`${num(s.mlEtanol, 1)}${u('mL')}`)} · máx. teórico ${tex(`${num(s.gEtanolTeo, 1)}${u('g')}`)}</small></div>
-      <div class="res"><span>${tex('\\ce{CO2}')} liberado</span><b>${tex(`${num(s.gCO2, 1)}${u('g')}`)}</b><small>${tex(`${num(s.lCO2, 1)}${u('L')}`)} a 25 °C y 1 atm</small></div>
+      <div class="res"><span>${tex('\\ce{CO2}')} liberado</span><b>${tex(`${num(s.gCO2, 1)}${u('g')}`)}</b><small>${tex(`${num(s.lCO2, 1)}${u('L')}`)} a 25 °C y 1 atm${fO < 1 ? ' · la acetificación no lo retira' : ''}</small></div>
       <div class="res"><span>Moles de etanol</span><b>${tex(`${num(s.nEtanol, 3)}${u('mol')}`)}</b><small>relación 1 : 2 glucosa a etanol</small></div>`;
     if ($('calcRes')._html !== res) { $('calcRes')._html = res; $('calcRes').innerHTML = res; }
   }

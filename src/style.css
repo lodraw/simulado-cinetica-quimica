@@ -240,6 +240,7 @@ p { margin: 0; }
 .etapas button.sel::after { content: ''; position: absolute; left: 0; right: 8px; bottom: -1px; height: 3px; background: var(--tinta); }
 .etapa-detalle { padding-top: 16px; max-width: 76ch; }
 .reaccion { font-size: 1.1rem; overflow-x: auto; overflow-y: hidden; }
+.pasos { overflow-x: auto; overflow-y: hidden; } /* en teléfono las ecuaciones no caben a lo ancho */
 .reaccion .katex-display { margin: 12px 0 0; text-align: left; }
 .reaccion .katex-display > .katex { text-align: left; }
 
