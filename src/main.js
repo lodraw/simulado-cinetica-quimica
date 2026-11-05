@@ -110,6 +110,7 @@ function iniciar() {
   Chart.defaults.color = tenue;
   Chart.defaults.font.family = "'Schibsted Grotesk', sans-serif";
   Chart.defaults.font.size = 13;
+  Chart.defaults.devicePixelRatio = Math.min(window.devicePixelRatio, 2); // a 3× solo gastan memoria
   Chart.defaults.borderColor = linea;
   const tooltip = { backgroundColor: hoja, titleColor: tinta, bodyColor: tinta, borderColor: linea, borderWidth: 1, padding: 12, boxPadding: 6, cornerRadius: 4, usePointStyle: true };
 
@@ -204,6 +205,7 @@ function iniciar() {
   ponerTex($('eqYv'), `Y_{\\max} = ${Y_MAX.toFixed(4)}${u('g etanol / g glucosa')}`);
 
   function actualizarModelo(clave, T, pH, dias, sellado, r) {
+    if ($('seccionModelo').hidden) return; // KaTeX es caro; se calcula al activar la sección
     const f = FRUTAS[clave], vel = f.vel, tF = diaCompleto(clave);
     ponerTex($('eqPrincipal'), `R = \\eta \\cdot f_T \\cdot f_{\\mathrm{pH}} \\cdot f_t \\cdot f_{\\ce{O2}} = ${f.efic} \\times ${r.fT.toFixed(3)} \\times ${r.fP.toFixed(3)} \\times ${r.fD.toFixed(3)} \\times ${r.fO.toFixed(3)} = ${r.rendimiento.toFixed(1)}\\,\\%`, true);
     const sF = (PARAM.sigmaFrio / f.sensT).toFixed(2), sC = (PARAM.sigmaCalor / f.sensT).toFixed(2);
@@ -217,6 +219,29 @@ function iniciar() {
     ponerTex($('eqO'), `f_{\\ce{O2}} = \\begin{cases} 1 & \\text{con sello} \\\\ e^{-${PARAM.kO2}\\,\\max(0,\\ t-${PARAM.tO2})} & \\text{sin sello} \\end{cases}`, true);
     ponerTex($('eqOv'), `\\text{${sellado ? 'con' : 'sin'} sello} \\;\\Rightarrow\\; f_{\\ce{O2}} = ${r.fO.toFixed(3)}`);
   }
+
+  // Fuera de pantalla no se redibujan: se ponen al día al volver a verse.
+  let graficasVisibles = true, graficasPendientes = false;
+  function actualizarGraficas() {
+    if (!graficasVisibles) { graficasPendientes = true; return; }
+    graficasPendientes = false;
+    const { clave, T, pH, dias, sellado, r } = ultimo;
+    barras.data.datasets[1].data = claves.map(k => calcular(k, T, pH, dias, sellado).rendimiento);
+    barras.data.datasets[1].backgroundColor = claves.map(k => k === clave ? COLOR_FRUTA[k] : COLOR_FRUTA[k] + '59');
+    barras.update(anim ? 'none' : undefined); // durante la animación, sin transición en cada cuadro
+    lineas.data.datasets.forEach(ds => {
+      if (!ds.clave) return;
+      ds.data = T_PUNTOS.map(t => ({ x: t, y: calcular(ds.clave, T, pH, t, sellado).rendimiento }));
+      ds.borderWidth = ds.clave === clave ? 3 : 2;
+      ds.borderColor = ds.clave === clave ? COLOR_FRUTA[ds.clave] : COLOR_FRUTA[ds.clave] + '66';
+    });
+    lineas.data.datasets.at(-1).data = [{ x: dias, y: r.rendimiento }];
+    lineas.update();
+  }
+  new IntersectionObserver(([e]) => {
+    graficasVisibles = e.isIntersecting;
+    if (graficasVisibles && graficasPendientes) actualizarGraficas();
+  }).observe($('grafica').closest('.seccion'));
 
   // ---------- actualización ----------
   function actualizar() {
@@ -278,18 +303,7 @@ function iniciar() {
     }
     if (d._html !== html) { d._html = html; d.innerHTML = conTex(html.replace(/CO₂/g, '$\\ce{CO2}$').replace(/O₂/g, '$\\ce{O2}$')); }
 
-    // gráficas
-    barras.data.datasets[1].data = claves.map(k => calcular(k, T, pH, dias, sellado).rendimiento);
-    barras.data.datasets[1].backgroundColor = claves.map(k => k === clave ? COLOR_FRUTA[k] : COLOR_FRUTA[k] + '59');
-    barras.update();
-    lineas.data.datasets.forEach(ds => {
-      if (!ds.clave) return;
-      ds.data = T_PUNTOS.map(t => ({ x: t, y: calcular(ds.clave, T, pH, t, sellado).rendimiento }));
-      ds.borderWidth = ds.clave === clave ? 3 : 2;
-      ds.borderColor = ds.clave === clave ? COLOR_FRUTA[ds.clave] : COLOR_FRUTA[ds.clave] + '66';
-    });
-    lineas.data.datasets.at(-1).data = [{ x: dias, y: r.rendimiento }];
-    lineas.update();
+    actualizarGraficas();
 
     // 3D y overlays
     $('tagFase').textContent = fase.nombre;
@@ -310,6 +324,7 @@ function iniciar() {
 
   // ---------- calculadora ----------
   function actualizarCalc(rend) {
+    if ($('seccionCalculadora').hidden) return;
     const m = Math.max(0, +$('gAzucar').value || 0);
     const s = estequiometria(m, rend), fr = rend / 100;
     ponerTex($('calcRend'), `${rend.toFixed(1)}\\,\\%`);
@@ -327,11 +342,18 @@ function iniciar() {
       <div class="res"><span>Moles de etanol</span><b>${tex(`${num(s.nEtanol, 3)}${u('mol')}`)}</b><small>relación 1 : 2 glucosa a etanol</small></div>`;
     if ($('calcRes')._html !== res) { $('calcRes')._html = res; $('calcRes').innerHTML = res; }
   }
-  $('gAzucar').addEventListener('input', () => actualizar());
+  // Un dedo en un deslizador dispara más eventos que cuadros: se agrupan en uno por cuadro
+  let actualizacionPedida = false;
+  const pedirActualizar = () => {
+    if (actualizacionPedida) return;
+    actualizacionPedida = true;
+    requestAnimationFrame(() => { actualizacionPedida = false; actualizar(); });
+  };
+  $('gAzucar').addEventListener('input', pedirActualizar);
 
   // ---------- eventos ----------
   const limpiarEscenario = () => document.querySelectorAll('#escenarios button').forEach(x => x.classList.remove('activa'));
-  [el.temp, el.ph, el.dias].forEach(e => e.addEventListener('input', () => { if (e === el.dias) detener(); limpiarEscenario(); actualizar(); }));
+  [el.temp, el.ph, el.dias].forEach(e => e.addEventListener('input', () => { if (e === el.dias) detener(); limpiarEscenario(); pedirActualizar(); }));
   el.sellado.addEventListener('change', () => { limpiarEscenario(); actualizar(); });
 
   $('frutas').addEventListener('click', ev => {
@@ -370,7 +392,9 @@ function iniciar() {
   $('panelOpciones').addEventListener('change', ev => {
     const seccion = $(ev.target.dataset.seccion);
     seccion.hidden = !ev.target.checked;
-    if (ev.target.checked) seccion.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!ev.target.checked) return;
+    actualizar();
+    seccion.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 
   // el alto de la cabecera cambia con el ancho y con el modo Presentación

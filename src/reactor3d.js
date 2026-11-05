@@ -13,6 +13,12 @@ function lienzo(w = 512, h = 512) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
   return [c, c.getContext('2d')];
 }
+// Pantallas táctiles: menos resolución, 30 cuadros/s y ruido más simple. En un teléfono no se
+// distingue, y evita que la GPU se sature o se caliente. Con ratón todo queda en calidad completa.
+const CALIDAD = matchMedia('(pointer: coarse)').matches
+  ? { pixeles: 1.5, msCuadro: 31, octavas: 3, burbujas: 140, levadura: 300 } // con 2 octavas las manchas salen cuadradas
+  : { pixeles: 2, msCuadro: 0, octavas: 4, burbujas: 220, levadura: 500 };
+
 const rnd = (a, b) => a + Math.random() * (b - a);
 function aTextura(canvas, rep = [1, 1], color = true) {
   const t = new THREE.CanvasTexture(canvas);
@@ -94,12 +100,14 @@ const GLSL_RUIDO = /* glsl */`
     return mix(mix(mix(hash3(i), hash3(i + vec3(1,0,0)), f.x), mix(hash3(i + vec3(0,1,0)), hash3(i + vec3(1,1,0)), f.x), f.y),
                mix(mix(hash3(i + vec3(0,0,1)), hash3(i + vec3(1,0,1)), f.x), mix(hash3(i + vec3(0,1,1)), hash3(i + vec3(1,1,1)), f.x), f.y), f.z);
   }
-  float fbm(vec3 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a * ruido3(p); p = p * 2.03 + 7.1; a *= 0.5; } return s / 0.9375; }
+  float fbm(vec3 p) { float a = 0.5, s = 0.0; for (int i = 0; i < ${CALIDAD.octavas}; i++) { s += a * ruido3(p); p = p * 2.03 + 7.1; a *= 0.5; } return s / ${(1 - 0.5 ** CALIDAD.octavas).toFixed(4)}; }
 `;
 const GLSL_CELDAS = /* glsl */`
-  float celdas(vec3 p) { // distancia al centro de colonia más cercano (Worley)
-    vec3 i = floor(p), f = fract(p); float d = 1.0;
-    for (int x = -1; x <= 1; x++) for (int y = -1; y <= 1; y++) for (int z = -1; z <= 1; z++) {
+  // Distancia al centro de colonia más cercano (Worley). Basta un bloque de 2×2×2 celdas
+  // alrededor del punto: cubre un radio de 0.5, el máximo de una colonia (radioM).
+  float celdas(vec3 p) {
+    vec3 i = floor(p - 0.5), f = p - i; float d = 1.0;
+    for (int x = 0; x <= 1; x++) for (int y = 0; y <= 1; y++) for (int z = 0; z <= 1; z++) {
       vec3 g = vec3(x, y, z), c = g + vec3(hash3(i + g), hash3(i + g + 11.3), hash3(i + g + 27.7));
       d = min(d, length(c - f));
     }
@@ -125,9 +133,11 @@ const GLSL_COLOR = /* glsl */`
   float mP = smoothstep(umbralP - 0.07, umbralP + 0.09, nGrande * 0.72 + nFino * 0.28);
   cC = mix(cC, cC * vec3(0.36, 0.22, 0.12) + vec3(0.025, 0.012, 0.004), mP * min(1.0, uPardeo * 3.5));
   // Oxidación alcalina: manchas casi negras
-  float umbralO = 0.74 - uOxidacion * 0.56;
-  float mO = smoothstep(umbralO - 0.04, umbralO + 0.05, fbm(vPosC * 3.1 + 9.0)) * step(0.01, uOxidacion);
-  cC = mix(cC, vec3(0.022, 0.014, 0.012), mO * 0.92);
+  if (uOxidacion >= 0.01) {
+    float umbralO = 0.74 - uOxidacion * 0.56;
+    float mO = smoothstep(umbralO - 0.04, umbralO + 0.05, fbm(vPosC * 3.1 + 9.0));
+    cC = mix(cC, vec3(0.022, 0.014, 0.012), mO * 0.92);
+  }
   // Moho: colonias con centro verde azulado y borde blanco de micelio
   float dM = uMoho > 0.02 ? celdas(vPosC * 2.6 + (nFino - 0.5) * 0.9) : 1.0;
   float radioM = uMoho * 0.5;
@@ -149,15 +159,17 @@ function conDeterioro(mat, compartidos, escala, hundir) {
       .replace('#include <common>', `#include <common>\n${GLSL_RUIDO}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         vPosC = position * uEscala;
-        transformed -= normal * uArruga * uHundir * fbm(vPosC * 2.4);`);
+        if (uArruga > 0.001) transformed -= normal * uArruga * uHundir * fbm(vPosC * 2.4);`);
     sh.fragmentShader = sh.fragmentShader
       .replace('#include <common>', `#include <common>\n${GLSL_RUIDO}\n${GLSL_CELDAS}`)
       .replace('#include <map_fragment>', `#include <map_fragment>\n${GLSL_COLOR}`)
       .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
         roughnessFactor = clamp(roughnessFactor + uEscaldado * 0.3 + uPardeo * 0.2 - uOxidacion * 0.55 + mM * 0.6, 0.08, 1.0);`)
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
-        float hC = abs(fbm(vPosC * 4.2) - 0.5) * 2.0;
-        normal = relieveC(-vViewPosition, normal, vec2(dFdx(hC), dFdy(hC)) * uArruga * 0.11 / max(uEscala, 0.001), faceDirection);`);
+        if (uArruga > 0.001) {
+          float hC = abs(fbm(vPosC * 4.2) - 0.5) * 2.0;
+          normal = relieveC(-vViewPosition, normal, vec2(dFdx(hC), dFdy(hC)) * uArruga * 0.11 / max(uEscala, 0.001), faceDirection);
+        }`);
   };
   return mat;
 }
@@ -359,13 +371,14 @@ export class Reactor3D {
     this.visible = true;
 
     const r = this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    r.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    r.setPixelRatio(Math.min(window.devicePixelRatio, CALIDAD.pixeles));
     r.toneMapping = THREE.NeutralToneMapping; r.toneMappingExposure = 1;
     contenedor.prepend(r.domElement);
 
     this.escena = new THREE.Scene();
     const pmrem = new THREE.PMREMGenerator(r);
     this.escena.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose(); // la textura se queda; lo que libera son sus búferes de trabajo
     this.escena.environmentIntensity = 0.55;
 
     this.camara = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
@@ -385,7 +398,8 @@ export class Reactor3D {
     new ResizeObserver(() => this._ajustar()).observe(contenedor);
     new IntersectionObserver(([e]) => { this.visible = e.isIntersecting; }).observe(contenedor);
     this._ajustar();
-    r.setAnimationLoop(() => this._animar());
+    this._ultimoCuadro = 0;
+    r.setAnimationLoop(ahora => this._animar(ahora));
   }
 
   _tex(clave) { return this.texturas[clave] ??= TEXTURAS[clave](); }
@@ -414,14 +428,14 @@ export class Reactor3D {
     this.liquido.position.y = -H / 2 + this.altoLiquido / 2 + 0.01; this.liquido.renderOrder = 1; g.add(this.liquido);
 
     // levadura en suspensión (turbidez)
-    const nL = 500, pl = new Float32Array(nL * 3);
+    const nL = CALIDAD.levadura, pl = new Float32Array(nL * 3);
     for (let i = 0; i < nL; i++) { const a = rnd(0, 6.28), rr = Math.sqrt(Math.random()) * (R - 0.1); pl.set([Math.cos(a) * rr, rnd(-H / 2 + 0.05, this.yTope - 0.05), Math.sin(a) * rr], i * 3); }
     const gl = new THREE.BufferGeometry(); gl.setAttribute('position', new THREE.BufferAttribute(pl, 3));
     this.levadura = new THREE.Points(gl, new THREE.PointsMaterial({ color: 0xfff6e0, size: 0.03, transparent: true, opacity: 0.3, depthWrite: false }));
     this.levadura.renderOrder = 2; g.add(this.levadura);
 
     // burbujas de CO2
-    this.N_BURB = 220;
+    this.N_BURB = CALIDAD.burbujas;
     this.burbujas = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 10, 8), materialBurbuja(), this.N_BURB);
     this.datosBurb = Array.from({ length: this.N_BURB }, () => this._nuevaBurbuja(true));
     this.burbujas.renderOrder = 3; this.burbujas.frustumCulled = false; g.add(this.burbujas);
@@ -591,8 +605,23 @@ export class Reactor3D {
     this.camara.updateProjectionMatrix();
   }
 
-  _animar() {
-    if (!this.visible) return;
+  // Si el equipo no alcanza 24 cuadros/s, baja la resolución poco a poco hasta 1×.
+  // Una pausa larga (pestaña oculta, reactor fuera de vista) no cuenta como lentitud.
+  _vigilarFluidez(ahora) {
+    const pausa = ahora - this._ultimoCuadro > 500;
+    this._ultimoCuadro = ahora;
+    if (pausa) { this._inicioLapso = ahora; this._cuadros = 0; return; }
+    this._cuadros++;
+    const lapso = ahora - this._inicioLapso;
+    if (lapso < 2000) return;
+    const fps = this._cuadros * 1000 / lapso, resolucion = this.renderer.getPixelRatio();
+    this._inicioLapso = ahora; this._cuadros = 0;
+    if (fps < 24 && resolucion > 1) this.renderer.setPixelRatio(Math.max(1, resolucion - 0.25));
+  }
+
+  _animar(ahora) {
+    if (!this.visible || ahora - this._ultimoCuadro < CALIDAD.msCuadro) return;
+    this._vigilarFluidez(ahora);
     const dt = Math.min(0.05, this.reloj.getDelta()), t = this.reloj.elapsedTime;
     const { actividad, T, turbidez, cascara, sellado } = this.estado;
     const k = 1 - Math.exp(-dt * 5); // transición suave entre condiciones
